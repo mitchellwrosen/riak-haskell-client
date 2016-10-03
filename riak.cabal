@@ -75,6 +75,7 @@ library
     Network.Riak.Content
     Network.Riak.CRDT
     Network.Riak.CRDT.Counter
+    Network.Riak.CRDT.Map
     Network.Riak.CRDT.Set
     Network.Riak.Debug
     Network.Riak.Escape
@@ -178,6 +179,3 @@ benchmark bench
     criterion   >= 1.1,
     bytestring  >= 0.10,
     semigroups  >= 0.16
-
-
-

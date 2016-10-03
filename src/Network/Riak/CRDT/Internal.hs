@@ -15,19 +15,22 @@ module Network.Riak.CRDT.Internal where
 
 import           Control.Applicative
 import           Control.Exception
-import           Data.ByteString.Lazy                           (ByteString)
-import qualified Data.ByteString.Lazy.Char8                     as Char8
+import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as Char8
 import           Data.Semigroup
 import           Data.Typeable
-import qualified Network.Riak.Connection                        as Conn
-import qualified Network.Riak.Protocol.DtOp                     as DtOp
-import qualified Network.Riak.Protocol.DtUpdateRequest          as DtUpdateRequest
-import qualified Network.Riak.Protocol.DtFetchRequest           as DtFetchRequest
-import qualified Network.Riak.Protocol.DtFetchResponse          as DtFetchResponse
+import qualified Network.Riak.Connection as Conn
+import           Network.Riak.Protocol.DtOp (DtOp)
+import           Network.Riak.Protocol.DtUpdateRequest (DtUpdateRequest)
+import qualified Network.Riak.Protocol.DtUpdateRequest as DtUpdateRequest
+import           Network.Riak.Protocol.DtFetchRequest (DtFetchRequest)
+import qualified Network.Riak.Protocol.DtFetchRequest as DtFetchRequest
+import           Network.Riak.Protocol.DtFetchResponse (DtFetchResponse)
+import qualified Network.Riak.Protocol.DtFetchResponse as DtFetchResponse
 import qualified Network.Riak.Protocol.DtFetchResponse.DataType as DtFetchResponse
-import qualified Network.Riak.Protocol.DtValue                  as DtValue
-import           Network.Riak.Types                             hiding (bucket, key)
-import qualified Text.ProtocolBuffers                           as Proto
+import           Network.Riak.Protocol.DtValue (DtValue)
+import           Network.Riak.Types hiding (bucket, key)
+import qualified Text.ProtocolBuffers as Proto
 
 
 class CRDTOp (Op a) => CRDT a where
@@ -45,7 +48,7 @@ class Semigroup a => CRDTOp a where
 
   -- | Lift a Haskell op all the way to a protobuf DtOp (the union of all
   -- possible operations). This necessarily is implemented using 'updateOp'.
-  unionOp  :: a -> DtOp.DtOp
+  unionOp  :: a -> DtOp
 
 type Context = ByteString
 
@@ -111,7 +114,7 @@ sendModifyCtx
   => Connection -> BucketType -> Bucket -> Key -> Context -> op -> IO ()
 sendModifyCtx conn typ bucket key ctx op = Conn.exchange_ conn req
   where
-    req :: DtUpdateRequest.DtUpdateRequest
+    req :: DtUpdateRequest
     req = (updateRequest typ bucket key op)
             { DtUpdateRequest.context = Just ctx }
 
@@ -119,7 +122,7 @@ sendModifyCtx conn typ bucket key ctx op = Conn.exchange_ conn req
 -- @op@ fields set.
 updateRequest
   :: CRDTOp op
-  => BucketType -> Bucket -> Key -> op -> DtUpdateRequest.DtUpdateRequest
+  => BucketType -> Bucket -> Key -> op -> DtUpdateRequest
 updateRequest typ bucket key op = Proto.defaultValue
   { DtUpdateRequest.type'  = typ
   , DtUpdateRequest.bucket = bucket
@@ -153,10 +156,10 @@ updateRequest typ bucket key op = Proto.defaultValue
 -- 'Network.Riak.CRDT.Map.fetch', and 'Network.Riak.CRDT.Set.fetch'.
 fetchRaw
   :: Connection -> BucketType -> Bucket -> Key
-  -> IO DtFetchResponse.DtFetchResponse
+  -> IO DtFetchResponse
 fetchRaw conn typ bucket key = Conn.exchange conn (fetchRequest typ bucket key)
 
-fetchRequest :: BucketType -> Bucket -> Key -> DtFetchRequest.DtFetchRequest
+fetchRequest :: BucketType -> Bucket -> Key -> DtFetchRequest
 fetchRequest typ bucket key = Proto.defaultValue
   { DtFetchRequest.type'  = typ
   , DtFetchRequest.bucket = bucket
@@ -169,9 +172,9 @@ fetchRequest typ bucket key = Proto.defaultValue
 fetchInternal
   :: forall a.
      DtFetchResponse.DataType -- Expected type
-  -> (DtValue.DtValue -> a)   -- Projection from DataType
+  -> (DtValue -> a)           -- Projection from DataType
   -> Connection
-  -> DtFetchRequest.DtFetchRequest
+  -> DtFetchRequest
   -> IO (Maybe (a, Maybe Context))
 fetchInternal expected prj conn req = Conn.exchange conn req >>= go
   where
