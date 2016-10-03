@@ -74,11 +74,8 @@ library
     Network.Riak.Connection.Pool
     Network.Riak.Content
     Network.Riak.CRDT
-    Network.Riak.CRDT.Ops
-    Network.Riak.CRDT.Request
-    Network.Riak.CRDT.Response
-    Network.Riak.CRDT.Riak
-    Network.Riak.CRDT.Types
+    Network.Riak.CRDT.Counter
+    Network.Riak.CRDT.Set
     Network.Riak.Debug
     Network.Riak.Escape
     Network.Riak.Functions
@@ -95,6 +92,7 @@ library
 
   other-modules:
     Network.Riak.Connection.NoPush
+    Network.Riak.CRDT.Internal
     Network.Riak.Resolvable.Internal
     Network.Riak.Tag
 
