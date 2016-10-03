@@ -36,7 +36,6 @@ module Network.Riak.Types.Internal
     , IndexInfo
     , VClock(..)
     , Job(..)
-    , CausalContext
     -- * Quorum management
     , Quorum(..)
     , DW
@@ -171,9 +170,6 @@ type Tag = ByteString
 data Job = JSON ByteString
          | Erlang ByteString
            deriving (Eq, Show, Typeable)
-
--- | Causal context
-type CausalContext = ByteString
 
 -- | Search request
 type SearchQuery = ByteString

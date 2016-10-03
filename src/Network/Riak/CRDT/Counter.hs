@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TypeFamilies               #-}
 
 -- |
@@ -11,23 +12,24 @@
 -- Stability:   experimental
 
 module Network.Riak.CRDT.Counter
-  ( Counter
+  ( -- * Counter type
+    Counter
   , Count
   , counterVal
+    -- * Counter operations
   , incr
+    -- * Counter fetch
   , fetch
   , fetchWith
   ) where
 
 import           Control.Applicative
-import           Control.Exception
 import           Data.Semigroup
 import qualified Network.Riak.Connection                        as Conn
 import           Network.Riak.CRDT.Internal
 import qualified Network.Riak.Protocol.CounterOp                as CounterOp
 import qualified Network.Riak.Protocol.DtOp                     as DtOp
 import qualified Network.Riak.Protocol.DtFetchRequest           as DtFetchRequest
-import qualified Network.Riak.Protocol.DtFetchResponse          as DtFetchResponse
 import qualified Network.Riak.Protocol.DtFetchResponse.DataType as DtFetchResponse
 import qualified Network.Riak.Protocol.DtValue                  as DtValue
 import           Network.Riak.Types
@@ -89,18 +91,11 @@ fetch conn typ bucket key = fetchWith conn (fetchRequest typ bucket key)
 -- Throws 'CRDTTypeMismatch' if the given bucket type, bucket, and key does
 -- not contain a 'Counter'.
 fetchWith :: Connection -> DtFetchRequest.DtFetchRequest -> IO (Maybe Counter)
-fetchWith conn req = Conn.exchange conn req >>= go
+fetchWith conn req =
+  fmap go <$>
+    fetchInternal DtFetchResponse.COUNTER DtValue.counter_value conn req
   where
-    go :: DtFetchResponse.DtFetchResponse -> IO (Maybe Counter)
-    go resp =
-      case DtFetchResponse.type' resp of
-        DtFetchResponse.COUNTER ->
-          pure (do
-            val   <- DtFetchResponse.value resp
-            count <- DtValue.counter_value val
-            pure (Counter count))
-        t -> throwIO (CRDTTypeMismatch typ bucket key DtFetchResponse.COUNTER t)
-      where
-        typ    = DtFetchRequest.type'  req
-        bucket = DtFetchRequest.bucket req
-        key    = DtFetchRequest.key    req
+    go :: (Maybe Int64, Maybe Context) -> Counter
+    go (Just i, _) = Counter i
+    -- type = COUNTER but counter_val = Nothing? Riak will never do this
+    go _ = error "impossible"

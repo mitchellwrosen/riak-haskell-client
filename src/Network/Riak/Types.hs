@@ -24,7 +24,6 @@ module Network.Riak.Types
     , Tag
     , VClock(..)
     , Job(..)
-    , CausalContext
     -- * Quorum management
     , Quorum(..)
     , RW
