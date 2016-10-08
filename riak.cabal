@@ -94,6 +94,7 @@ library
   other-modules:
     Network.Riak.Connection.NoPush
     Network.Riak.CRDT.Internal
+    Network.Riak.Lens
     Network.Riak.Resolvable.Internal
     Network.Riak.Tag
 

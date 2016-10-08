@@ -108,4 +108,4 @@ fetchWith conn req =
     go :: (Maybe Int64, Maybe Context) -> Counter
     go (Just i, _) = Counter i
     -- type = COUNTER but counter_val = Nothing? Riak will never do this
-    go _ = error "impossible"
+    go _ = error "Network.Riak.CRDT.Counter.fetchWith: Nothing"

@@ -32,6 +32,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import           GHC.Generics (Generic)
 import           Network.Riak.CRDT.Internal
+import           Network.Riak.Lens
 import           Network.Riak.Protocol.DtOp (DtOp)
 import qualified Network.Riak.Protocol.DtOp as DtOp
 import           Network.Riak.Protocol.SetOp (SetOp(SetOp))
@@ -117,7 +118,4 @@ fetchWith conn req =
   fmap go <$> fetchInternal DtFetchResponse.SET DtValue.set_value conn req
   where
     go :: (Seq ByteString, Maybe Context) -> (Set, Maybe Context)
-    go (xs, ctx) = (xs', ctx)
-      where
-        xs' :: Set
-        xs' = Set (foldr' Set.insert mempty xs)
+    go = over _1 (Set . seqToSet)

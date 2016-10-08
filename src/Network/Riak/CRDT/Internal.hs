@@ -17,7 +17,10 @@ import           Control.Applicative
 import           Control.Exception
 import           Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as Char8
+import           Data.Foldable (foldr')
 import           Data.Semigroup
+import qualified Data.Sequence
+import qualified Data.Set
 import           Data.Typeable
 import qualified Network.Riak.Connection as Conn
 import           Network.Riak.Protocol.DtOp (DtOp)
@@ -194,3 +197,11 @@ fetchInternal expected prj conn req = Conn.exchange conn req >>= go
           -- value. This means "not found" (so return Nothing).
           value <- DtFetchResponse.value resp
           pure (prj value, DtFetchResponse.context resp)
+
+
+--------------------------------------------------------------------------------
+-- Misc. functions shared by individual CRDTs, but not exported by
+-- Network.Riak.CRDT
+
+seqToSet :: Ord a => Data.Sequence.Seq a -> Data.Set.Set a
+seqToSet = foldr' Data.Set.insert mempty
