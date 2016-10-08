@@ -16,11 +16,12 @@ module Network.Riak.CRDT.Internal where
 import           Control.Applicative
 import           Control.Exception
 import           Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy.Char8 as Char8
 import           Data.Foldable (foldr')
 import           Data.Semigroup
 import qualified Data.Sequence
 import qualified Data.Set
+import qualified Data.Text.Lazy as LText
+import qualified Data.Text.Lazy.Encoding as LText
 import           Data.Typeable
 import qualified Network.Riak.Connection as Conn
 import           Network.Riak.Protocol.DtOp (DtOp)
@@ -67,19 +68,20 @@ data CRDTException
 
 instance Exception CRDTException where
 #if MIN_VERSION_base(4,8,0)
-  -- For error-reporting purposes, just snip each byte in the bucket type,
-  -- bucket, and key to 8 bits so it's printable-ish.
   displayException = \case
     CRDTTypeMismatch typ bucket key expected actual ->
-      "When fetching a data type at " ++ Char8.unpack typ ++ "/" ++
-        Char8.unpack bucket ++ "/" ++ Char8.unpack key ++ ", expected a " ++
-        showdt expected ++ " but got a " ++ showdt actual
+      "When fetching a data type at " ++ showbs typ ++ "/" ++ showbs bucket ++
+        "/" ++ showbs key ++ ", expected a " ++ showdt expected ++
+        " but got a " ++ showdt actual
       where
         showdt :: DtFetchResponse.DataType -> String
         showdt = \case
           DtFetchResponse.COUNTER -> "counter"
           DtFetchResponse.MAP     -> "map"
           DtFetchResponse.SET     -> "set"
+
+        showbs :: ByteString -> String
+        showbs = LText.unpack . LText.decodeUtf8
 #endif
 
 
