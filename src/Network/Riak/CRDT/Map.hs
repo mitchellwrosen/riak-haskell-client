@@ -10,10 +10,11 @@
 module Network.Riak.CRDT.Map
   ( -- * Map type
     Map
+  , Flag(..)
+  , Register(..)
     -- * Map operations
   , updateCounter
   , updateFlag
-  , updateMap
   , updateRegister
   , updateSet
   , removeCounter
@@ -32,6 +33,8 @@ import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Default.Class
 import           Data.Foldable (foldr')
+import           Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import           Data.Semigroup
 import           Data.Sequence (Seq, (<|))
@@ -233,44 +236,63 @@ instance NFData Register
 
 
 -- | Update 'Counter' operation.
-updateCounter :: ByteString -> Op Counter -> Op Map
-updateCounter name op = mempty { upd_counters = Map.singleton name op }
+updateCounter :: NonEmpty ByteString -> Op Counter -> Op Map
+updateCounter names op =
+  updateMapWith names (\name -> mempty { upd_counters = Map.singleton name op })
 
 -- | Update 'Flag' operation.
-updateFlag :: ByteString -> Flag -> Op Map
-updateFlag name flag = mempty { upd_flags = Map.singleton name flag }
-
--- | Update 'Map' operation.
-updateMap :: ByteString -> Op Map -> Op Map
-updateMap name op = mempty { upd_maps = Map.singleton name op }
+updateFlag :: NonEmpty ByteString -> Flag -> Op Map
+updateFlag names flag =
+  updateMapWith names (\name -> mempty { upd_flags = Map.singleton name flag })
 
 -- | Update 'Register' operation.
-updateRegister :: ByteString -> Register -> Op Map
-updateRegister name reg = mempty { upd_registers = Map.singleton name reg }
+updateRegister :: NonEmpty ByteString -> Register -> Op Map
+updateRegister names reg =
+  updateMapWith names (\name -> mempty { upd_registers = Map.singleton name reg })
 
 -- | Update 'Set' operation.
-updateSet :: ByteString -> Op Set -> Op Map
-updateSet name op = mempty { upd_sets = Map.singleton name op }
+updateSet :: NonEmpty ByteString -> Op Set -> Op Map
+updateSet names op =
+  updateMapWith names (\name -> mempty { upd_sets = Map.singleton name op })
 
--- | Remove 'Set' operation.
-removeCounter :: ByteString -> Op Map
-removeCounter name = mempty { rem_counters = Set.singleton name }
+-- | Internal update 'Map' operation. Not exported, because the only way to
+-- update a 'Map' is by updating a 'Counter', 'Flag', 'Register', or 'Set'
+-- inside of it.
+updateMapWith :: NonEmpty ByteString -> (ByteString -> Op Map) -> Op Map
+updateMapWith xs0 f = go (NonEmpty.toList xs0)
+  where
+    go :: [ByteString] -> Op Map
+    go [x]    = f x
+    go (x:xs) = mempty { upd_maps = Map.singleton x (go xs) }
+    go _      = error "Network.Riak.CRDT.Map.updateMapWith: empty list"
+
+-- | Remove 'Counter' operation.
+removeCounter :: NonEmpty ByteString -> Op Map
+removeCounter = removeFromMap (\x -> mempty { rem_counters = x })
 
 -- | Remove 'Flag' operation.
-removeFlag :: ByteString -> Op Map
-removeFlag name = mempty { rem_flags = Set.singleton name }
+removeFlag :: NonEmpty ByteString -> Op Map
+removeFlag = removeFromMap (\x -> mempty { rem_flags = x })
 
 -- | Remove 'Map' operation.
-removeMap :: ByteString -> Op Map
-removeMap name = mempty { rem_maps = Set.singleton name }
+removeMap :: NonEmpty ByteString -> Op Map
+removeMap = removeFromMap (\x -> mempty { rem_maps = x })
 
 -- | Remove 'Register' operation.
-removeRegister :: ByteString -> Op Map
-removeRegister name = mempty { rem_registers = Set.singleton name }
+removeRegister :: NonEmpty ByteString -> Op Map
+removeRegister = removeFromMap (\x -> mempty { rem_registers = x })
 
 -- | Remove 'Set' operation.
-removeSet :: ByteString -> Op Map
-removeSet name = mempty { rem_sets = Set.singleton name }
+removeSet :: NonEmpty ByteString -> Op Map
+removeSet = removeFromMap (\x -> mempty { rem_sets = x })
+
+removeFromMap :: (Set.Set ByteString -> Op Map) -> NonEmpty ByteString -> Op Map
+removeFromMap f = go . NonEmpty.toList
+  where
+    go :: [ByteString] -> Op Map
+    go [x]    = f (Set.singleton x)
+    go (x:xs) = mempty { upd_maps = Map.singleton x (go xs) }
+    go _      = error "Network.Riak.CRDT.Map.removeFromMap: empty list"
 
 
 -- | Fetch a 'Map'. This uses the default 'DtFetchRequest.DtFetchRequest' as
