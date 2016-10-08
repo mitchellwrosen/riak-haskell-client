@@ -15,8 +15,9 @@ module Network.Riak.CRDT.Map
   , Register(..)
     -- * Map operations
   , updateCounter
-  , updateFlag
-  , updateRegister
+  , enableFlag
+  , disableFlag
+  , setRegister
   , updateSet
   , removeCounter
   , removeFlag
@@ -287,13 +288,17 @@ instance NFData Register
 updateCounter :: NonEmpty ByteString -> Op Counter -> Op Map
 updateCounter = updateMapWith upd_countersL
 
--- | Update 'Flag' operation.
-updateFlag :: NonEmpty ByteString -> Flag -> Op Map
-updateFlag = updateMapWith upd_flagsL
+-- | Enable 'Flag' operation.
+enableFlag :: NonEmpty ByteString -> Op Map
+enableFlag names = updateMapWith upd_flagsL names (Flag True)
 
--- | Update 'Register' operation.
-updateRegister :: NonEmpty ByteString -> Register -> Op Map
-updateRegister = updateMapWith upd_registersL
+-- | Disable 'Flag' operation.
+disableFlag :: NonEmpty ByteString -> Op Map
+disableFlag names = updateMapWith upd_flagsL names (Flag False)
+
+-- | Set 'Register' operation.
+setRegister :: NonEmpty ByteString -> Register -> Op Map
+setRegister = updateMapWith upd_registersL
 
 -- | Update 'Set' operation.
 updateSet :: NonEmpty ByteString -> Op Set -> Op Map
