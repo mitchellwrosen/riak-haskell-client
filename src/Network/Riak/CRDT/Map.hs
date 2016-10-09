@@ -21,6 +21,12 @@ module Network.Riak.CRDT.Map
     Map
   , Flag(..)
   , Register(..)
+    -- * Map lookup
+  , lookupCounter
+  , lookupFlag
+  , lookupMap
+  , lookupRegister
+  , lookupSet
     -- * Map operations
   , updateCounter
   , enableFlag
@@ -290,6 +296,35 @@ newtype Register
 
 instance NFData Register
 
+
+-- | Look up a 'Counter' in a 'Map'.
+lookupCounter :: NonEmpty ByteString -> Map -> Maybe Counter
+lookupCounter = lookupInMap counters
+
+-- | Look up a 'Flag' in a 'Map'.
+lookupFlag :: NonEmpty ByteString -> Map -> Maybe Flag
+lookupFlag = lookupInMap flags
+
+-- | Look up a 'Map' in a 'Map'.
+lookupMap :: NonEmpty ByteString -> Map -> Maybe Map
+lookupMap = lookupInMap maps
+
+-- | Look up a 'Register' in a 'Map'.
+lookupRegister :: NonEmpty ByteString -> Map -> Maybe Register
+lookupRegister = lookupInMap registers
+
+-- | Look up a 'Set' in a 'Map'.
+lookupSet :: NonEmpty ByteString -> Map -> Maybe Set
+lookupSet = lookupInMap sets
+
+lookupInMap
+  :: forall a.
+     (Map -> Map.Map ByteString a) -> NonEmpty ByteString -> Map -> Maybe a
+lookupInMap f xs0 = go (NonEmpty.toList xs0)
+  where
+    go :: [ByteString] -> Map -> Maybe a
+    go [x]    m = Map.lookup x (f m)
+    go (x:xs) m = Map.lookup x (maps m) >>= go xs
 
 -- | Update 'Counter' operation. Any intermediate 'Map's (and the 'Counter'
 -- itself) will be created automatically, if missing.
