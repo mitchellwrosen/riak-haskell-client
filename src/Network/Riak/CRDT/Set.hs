@@ -1,8 +1,10 @@
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
 
 -- |
 -- Module:      Network.Riak.CRDT.Internal
@@ -52,46 +54,35 @@ instance Default Set where
   def = mempty
 
 instance CRDT Set where
-  data Op Set
+  data UOp Set
     = SetMod (Set.Set ByteString) (Set.Set ByteString)
     deriving (Eq, Show)
 
-  modify :: Op Set -> Set -> Set
-  modify (SetMod xs ys) (Set zs) = Set ((zs <> xs) Set.\\ ys)
+  type UpdateOp Set = SetOp
 
-instance Semigroup (Op Set) where
-  SetMod as bs <> SetMod cs ds = SetMod (as <> cs) (bs <> ds)
+  modifyU :: UOp Set -> Set -> Set
+  modifyU (SetMod xs ys) (Set zs) = Set ((zs <> xs) Set.\\ ys)
 
-instance CRDTOp (Op Set) where
-  type UpdateOp (Op Set) = SetOp
-
-  updateOp :: Op Set -> UpdateOp (Op Set)
+  updateOp :: UOp Set -> UpdateOp Set
   updateOp (SetMod xs ys) = SetOp (toSeq xs) (toSeq ys)
     where
       toSeq :: Set.Set a -> Seq a
       toSeq = Seq.fromList . Set.toList
 
-  unionOp :: Op Set -> DtOp
+  unionOp :: UOp Set -> DtOp
   unionOp op = Proto.defaultValue { DtOp.set_op = Just (updateOp op) }
+
+instance Semigroup (UOp Set) where
+  SetMod as bs <> SetMod cs ds = SetMod (as <> cs) (bs <> ds)
 
 
 -- | Add operation.
-add :: ByteString -> Op Set
-add x = SetMod (Set.singleton x) mempty
+add :: ByteString -> Op Set 'False
+add x = Op (SetMod (Set.singleton x) mempty)
 
--- | Remove operation. A request to Riak containing any 'Set' removals
--- (including removing from 'Set's stored inside of 'Network.Riak.CRDT.Map's)
--- must include a 'Context' or it will fail.
---
--- @
--- -- BAD! Does not set context!
--- 'sendModify' conn typ bucket key ('remove' val)
---
--- -- GOOD! Sets context!
--- 'sendModifyCtx' conn typ bucket key ctx ('remove' val)
--- @
-remove :: ByteString -> Op Set
-remove x = SetMod mempty (Set.singleton x)
+-- | Remove operation.
+remove :: ByteString -> Op Set 'True
+remove x = Op (SetMod mempty (Set.singleton x))
 
 
 -- | Fetch a 'Set'. This uses the default 'DtFetchRequest.DtFetchRequest' as

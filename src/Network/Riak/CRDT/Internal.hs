@@ -1,9 +1,13 @@
 {-# LANGUAGE CPP                 #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE DefaultSignatures   #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeOperators       #-}
 
 -- |
 -- Module:      Network.Riak.CRDT.Internal
@@ -37,24 +41,72 @@ import           Network.Riak.Types hiding (bucket, key)
 import qualified Text.ProtocolBuffers as Proto
 
 
-class CRDTOp (Op a) => CRDT a where
-  data Op a
+-- | A data type <http://docs.basho.com/riak/kv/2.1.4/developing/data-types/#data-types-and-context context>.
+--
+-- The following CRDT operations require a 'Context' when making a request:
+--
+--     (1) Disabling a 'Network.Riak.CRDT.Flag.Flag' within a 'Network.Riak.CRDT.Map.Map'
+--     (2) Removing an item from a 'Network.Riak.CRDT.Set.Set' (whether the 'Network.Riak.CRDT.Set.Set' is on its own or in a 'Network.Riak.CRDT.Map.Map')
+--     (3) Removing a field from a 'Network.Riak.CRDT.Map.Map'
+--
+-- As such, 'Op's are tagged with a type-level 'Bool' indicating whether or not
+-- a 'Context' is required.
+type Context = ByteString
 
-  modify :: Op a -> a -> a
 
-class Semigroup a => CRDTOp a where
+-- TODO: How to get rid of UOp in docs...
+class CRDT a where
+  -- | "Untyped" op - that is, the associated data family that does not carry
+  -- a Bool type index indicating whether its associated request to Riak
+  -- requires a context.
+  data UOp a
+
   -- | The protobuf data structure that corresponds to an update of this type of
   -- operation.
   type UpdateOp a
 
+  modifyU :: UOp a -> a -> a
+
+  -- | This is just '<>', but allows us to drop a 'Semigroup' constriant on
+  -- 'UOp' that shows up in the haddocks.
+  default combineOp :: Semigroup (UOp a) => UOp a -> UOp a -> UOp a
+  combineOp :: UOp a -> UOp a -> UOp a
+  combineOp = (<>)
+
   -- | Marshal a Haskell op to its protobuf form.
-  updateOp :: a -> UpdateOp a
+  updateOp :: UOp a -> UpdateOp a
 
   -- | Lift a Haskell op all the way to a protobuf DtOp (the union of all
   -- possible operations). This necessarily is implemented using 'updateOp'.
-  unionOp  :: a -> DtOp
+  unionOp :: UOp a -> DtOp
 
-type Context = ByteString
+-- | Modify a Haskell data type with an 'Op'.
+modify :: CRDT a => Op a c -> a -> a
+modify (Op op) = modifyU op
+
+
+-- | A CRDT operation, tagged with a type-level boolean indicating if a request
+-- sent with this 'Op' requires a 'Context'.
+--
+-- This is enforced by 'sendModify' and 'sendModifyCtx'.
+newtype Op a (c :: Bool) = Op (UOp a)
+
+-- | Combine two 'Op's monoidally. @:||@ is an unexported type family version of
+-- '||' with the obvious definition:
+--
+-- @
+-- type family (:||) a b where
+--   'False' :|| x = x
+--   'True   :|| x = 'True
+-- @
+(><) :: CRDT a => Op a c -> Op a c' -> Op a (c :|| c')
+Op x >< Op y = Op (combineOp x y)
+infixr 6 ><
+
+type family (:||) a b where
+  'False :|| x = x
+  'True  :|| x = 'True
+
 
 data CRDTException
   = CRDTTypeMismatch
@@ -89,7 +141,7 @@ instance Exception CRDTException where
 -- 'DtUpdateRequest.DtUpdateRequest' as returned by 'updateRequest':
 --
 -- @
--- 'sendModify' conn typ bucket key op = 'Conn.exchange_ conn ('updateRequest' typ bucket key op)
+-- 'sendModify' conn typ bucket key op = 'Conn.exchange_' conn ('updateRequest' typ bucket key op)
 -- @
 --
 -- This is provided for the common case that the @type@, @bucket@, @key@, and
@@ -104,9 +156,12 @@ instance Exception CRDTException where
 --     req :: 'DtUpdateRequest.DtUpdateRequest'
 --     req = ('updateRequest' typ bucket key op) { 'DtUpdateRequest.timeout' = 'Just' 1000 })
 -- @
+--
+-- Note that this circumvents the type-safety built into 'Op', namely that
+-- requests requiring a 'Context' are tagged with a type-level 'True'.
 sendModify
-  :: CRDTOp op
-  => Connection -> BucketType -> Bucket -> Key -> op -> IO ()
+  :: CRDT a
+  => Connection -> BucketType -> Bucket -> Key -> Op a 'False -> IO ()
 sendModify conn typ bucket key op =
   Conn.exchange_ conn (updateRequest typ bucket key op)
 
@@ -115,20 +170,22 @@ sendModify conn typ bucket key op =
 -- This is provided for the common case that the @type@, @bucket@, @key@, @op@,
 -- and @context@ fields are the only ones you wish to set.
 sendModifyCtx
-  :: CRDTOp op
-  => Connection -> BucketType -> Bucket -> Key -> Context -> op -> IO ()
+  :: CRDT a
+  => Connection -> BucketType -> Bucket -> Key -> Context -> Op a c -> IO ()
 sendModifyCtx conn typ bucket key ctx op = Conn.exchange_ conn req
   where
     req :: DtUpdateRequest
     req = (updateRequest typ bucket key op)
             { DtUpdateRequest.context = Just ctx }
 
--- | A 'DtUpdateRequest.DtUpdateRequest' with the @type@, @bucket@, @key@, and
--- @op@ fields set.
+-- | Construct a  'DtUpdateRequest.DtUpdateRequest' with the @type@, @bucket@,
+-- @key@, and @op@ fields set.
+--
+-- Use this when 'sendModify'/'sendModifyCtx' are insufficient.
 updateRequest
-  :: CRDTOp op
-  => BucketType -> Bucket -> Key -> op -> DtUpdateRequest
-updateRequest typ bucket key op = Proto.defaultValue
+  :: CRDT a
+  => BucketType -> Bucket -> Key -> Op a c -> DtUpdateRequest
+updateRequest typ bucket key (Op op) = Proto.defaultValue
   { DtUpdateRequest.type'  = typ
   , DtUpdateRequest.bucket = bucket
   , DtUpdateRequest.key    = Just key
@@ -157,8 +214,8 @@ updateRequest typ bucket key op = Proto.defaultValue
 -- @
 --
 -- The higher-level @fetch@ functions that pick apart the response should
--- usually suffice; see 'Network.Riak.CRDT.Counter.fetch',
--- 'Network.Riak.CRDT.Map.fetch', and 'Network.Riak.CRDT.Set.fetch'.
+-- usually suffice; see @Counter.'Network.Riak.CRDT.Counter.fetch'@,
+-- @Map.'Network.Riak.CRDT.Map.fetch'@, and @Set.'Network.Riak.CRDT.Set.fetch'@.
 fetchRaw
   :: Connection -> BucketType -> Bucket -> Key
   -> IO DtFetchResponse

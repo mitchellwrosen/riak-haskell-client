@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
 
 module Network.Riak.CRDT.Map
   ( -- * Map type
@@ -89,13 +91,13 @@ instance Monoid Map where
   mappend = (<>)
 
 instance CRDT Map where
-  data Op Map
+  data UOp Map
     = MapMod
-        { upd_counters  :: Map.Map ByteString (Op Counter)
+        { upd_counters  :: Map.Map ByteString (UOp Counter)
         , upd_flags     :: Map.Map ByteString Flag
-        , upd_maps      :: Map.Map ByteString (Op Map)
+        , upd_maps      :: Map.Map ByteString (UOp Map)
         , upd_registers :: Map.Map ByteString Register
-        , upd_sets      :: Map.Map ByteString (Op Set)
+        , upd_sets      :: Map.Map ByteString (UOp Set)
         , rem_counters  :: Set.Set ByteString
         , rem_flags     :: Set.Set ByteString
         , rem_maps      :: Set.Set ByteString
@@ -103,8 +105,10 @@ instance CRDT Map where
         , rem_sets      :: Set.Set ByteString
         }
 
-  modify :: Op Map -> Map -> Map
-  modify MapMod{..} Map{..} = Map
+  type UpdateOp Map = MapOp
+
+  modifyU :: UOp Map -> Map -> Map
+  modifyU MapMod{..} Map{..} = Map
     { counters  = counters'
     , flags     = flags'
     , maps      = maps'
@@ -132,39 +136,26 @@ instance CRDT Map where
       applyOps
         :: forall k a.
            (Ord k, Default a, CRDT a)
-        => Map.Map k (Op a) -> Map.Map k a -> Map.Map k a
+        => Map.Map k (UOp a) -> Map.Map k a -> Map.Map k a
       applyOps = Map.mergeWithKey apply (fmap applyDef) id
         where
           -- | Apply an operation to a CRDT. Suitable as the first argument of
           -- 'Map.mergeWithKey' (ignores ByteString key, and always returns
           -- Just, to keep the element in the map).
-          apply :: k -> Op a -> a -> Maybe a
-          apply _ op x = Just (modify op x)
+          apply :: k -> UOp a -> a -> Maybe a
+          apply _ op x = Just (modifyU op x)
 
           -- | Apply an operation to the default element of a CRDT. Suitable as
           -- the second argument of 'Map.mergeWithKey' (operations on
           -- non-existent elements cause them to be created).
-          applyDef :: Op a -> a
-          applyDef op = modify op def
+          applyDef :: UOp a -> a
+          applyDef op = modifyU op def
 
       -- | Remove all of the given keys from a map.
       (\\) :: Ord k => Map.Map k v -> Set.Set k -> Map.Map k v
       m \\ ks = Map.filterWithKey (\k _ -> k `Set.notMember` ks) m
 
-instance Semigroup (Op Map) where
-  MapMod a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 <>
-    MapMod b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 =
-      MapMod (a0 <> b0) (a1 <> b1) (a2 <> b2) (a3 <> b3) (a4 <> b4) (a5 <> b5)
-             (a6 <> b6) (a7 <> b7) (a8 <> b8) (a9 <> b9)
-
-instance Monoid (Op Map) where
-  mempty = MapMod mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
-  mappend = (<>)
-
-instance CRDTOp (Op Map) where
-  type UpdateOp (Op Map) = MapOp
-
-  updateOp :: Op Map -> UpdateOp (Op Map)
+  updateOp :: UOp Map -> UpdateOp Map
   updateOp MapMod{..} = MapOp removes updates
     where
       removes :: Seq MapField
@@ -190,7 +181,7 @@ instance CRDTOp (Op Map) where
           foldMapToSeq :: (k -> v -> a) -> Map.Map k v -> Seq a
           foldMapToSeq f = Map.foldMapWithKey (\k v -> Seq.singleton (f k v))
 
-          counterUpdate :: ByteString -> Op Counter -> MapUpdate
+          counterUpdate :: ByteString -> UOp Counter -> MapUpdate
           counterUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.COUNTER
             , MapUpdate.counter_op = Just (updateOp op)
@@ -203,7 +194,7 @@ instance CRDTOp (Op Map) where
                 Just (if flagVal flag then FlagOp.ENABLE else FlagOp.DISABLE)
             }
 
-          mapUpdate :: ByteString -> Op Map -> MapUpdate
+          mapUpdate :: ByteString -> UOp Map -> MapUpdate
           mapUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.MAP
             , MapUpdate.map_op = Just (updateOp op)
@@ -215,14 +206,25 @@ instance CRDTOp (Op Map) where
             , MapUpdate.register_op = Just (registerVal reg)
             }
 
-          setUpdate :: ByteString -> Op Set -> MapUpdate
+          setUpdate :: ByteString -> UOp Set -> MapUpdate
           setUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.SET
             , MapUpdate.set_op = Just (updateOp op)
             }
 
-  unionOp :: Op Map -> DtOp.DtOp
+  unionOp :: UOp Map -> DtOp.DtOp
   unionOp = undefined
+
+instance Semigroup (UOp Map) where
+  MapMod a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 <>
+    MapMod b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 =
+      MapMod (a0 <> b0) (a1 <> b1) (a2 <> b2) (a3 <> b3) (a4 <> b4) (a5 <> b5)
+             (a6 <> b6) (a7 <> b7) (a8 <> b8) (a9 <> b9)
+
+instance Monoid (UOp Map) where
+  mempty = MapMod mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mappend = (<>)
+
 
 countersL :: Lens' Map (Map.Map ByteString Counter)
 countersL = lens counters (\m x -> m { counters = x })
@@ -239,34 +241,34 @@ registersL = lens registers (\m x -> m { registers = x })
 setsL :: Lens' Map (Map.Map ByteString Set)
 setsL = lens sets (\m x -> m { sets = x })
 
-upd_countersL :: Lens' (Op Map) (Map.Map ByteString (Op Counter))
+upd_countersL :: Lens' (UOp Map) (Map.Map ByteString (UOp Counter))
 upd_countersL = lens upd_counters (\m x -> m { upd_counters = x })
 
-upd_flagsL :: Lens' (Op Map) (Map.Map ByteString Flag)
+upd_flagsL :: Lens' (UOp Map) (Map.Map ByteString Flag)
 upd_flagsL = lens upd_flags (\m x -> m { upd_flags = x })
 
-upd_mapsL :: Lens' (Op Map) (Map.Map ByteString (Op Map))
+upd_mapsL :: Lens' (UOp Map) (Map.Map ByteString (UOp Map))
 upd_mapsL = lens upd_maps (\m x -> m { upd_maps = x })
 
-upd_registersL :: Lens' (Op Map) (Map.Map ByteString Register)
+upd_registersL :: Lens' (UOp Map) (Map.Map ByteString Register)
 upd_registersL = lens upd_registers (\m x -> m { upd_registers = x })
 
-upd_setsL :: Lens' (Op Map) (Map.Map ByteString (Op Set))
+upd_setsL :: Lens' (UOp Map) (Map.Map ByteString (UOp Set))
 upd_setsL = lens upd_sets (\m x -> m { upd_sets = x })
 
-rem_countersL :: Lens' (Op Map) (Set.Set ByteString)
+rem_countersL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_countersL = lens rem_counters (\m x -> m { rem_counters = x })
 
-rem_flagsL :: Lens' (Op Map) (Set.Set ByteString)
+rem_flagsL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_flagsL = lens rem_flags (\m x -> m { rem_flags = x })
 
-rem_mapsL :: Lens' (Op Map) (Set.Set ByteString)
+rem_mapsL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_mapsL = lens rem_maps (\m x -> m { rem_maps = x })
 
-rem_registersL :: Lens' (Op Map) (Set.Set ByteString)
+rem_registersL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_registersL = lens rem_registers (\m x -> m { rem_registers = x })
 
-rem_setsL :: Lens' (Op Map) (Set.Set ByteString)
+rem_setsL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_setsL = lens rem_sets (\m x -> m { rem_sets = x })
 
 
@@ -276,7 +278,6 @@ newtype Flag
 
 instance NFData Flag
 
-
 newtype Register
   = Register { registerVal :: ByteString }
   deriving (Eq, Show, Generic)
@@ -285,62 +286,64 @@ instance NFData Register
 
 
 -- | Update 'Counter' operation.
-updateCounter :: NonEmpty ByteString -> Op Counter -> Op Map
-updateCounter = updateMapWith upd_countersL
+updateCounter :: NonEmpty ByteString -> Op Counter c -> Op Map c
+updateCounter names (Op op) = Op (updateMapWith upd_countersL names op)
 
 -- | Enable 'Flag' operation.
-enableFlag :: NonEmpty ByteString -> Op Map
-enableFlag names = updateMapWith upd_flagsL names (Flag True)
+enableFlag :: NonEmpty ByteString -> Op Map 'True
+enableFlag names = Op (updateMapWith upd_flagsL names (Flag True))
 
 -- | Disable 'Flag' operation.
-disableFlag :: NonEmpty ByteString -> Op Map
-disableFlag names = updateMapWith upd_flagsL names (Flag False)
+disableFlag :: NonEmpty ByteString -> Op Map 'True
+disableFlag names = Op (updateMapWith upd_flagsL names (Flag False))
 
 -- | Set 'Register' operation.
-setRegister :: NonEmpty ByteString -> Register -> Op Map
-setRegister = updateMapWith upd_registersL
+setRegister :: NonEmpty ByteString -> Register -> Op Map 'False
+setRegister names reg = Op (updateMapWith upd_registersL names reg)
 
 -- | Update 'Set' operation.
-updateSet :: NonEmpty ByteString -> Op Set -> Op Map
-updateSet = updateMapWith upd_setsL
+updateSet :: NonEmpty ByteString -> Op Set c -> Op Map c
+updateSet names (Op op) = Op (updateMapWith upd_setsL names op)
 
 -- | Internal update 'Map' operation. Not exported, because the only way to
 -- update a 'Map' is by updating a 'Counter', 'Flag', 'Register', or 'Set'
 -- inside of it.
 updateMapWith
-  :: Lens' (Op Map) (Map.Map ByteString a) -> NonEmpty ByteString -> a -> Op Map
+  :: Lens' (UOp Map) (Map.Map ByteString a) -> NonEmpty ByteString -> a
+  -> UOp Map
 updateMapWith l xs0 y = go (NonEmpty.toList xs0)
   where
-    go :: [ByteString] -> Op Map
-    go [x]    = mempty & l .~ Map.singleton x y
+    -- go :: [ByteString] -> Op Map
+    go [x]    = mempty & l .~ Map.singleton x y -- TODO fix
     go (x:xs) = mempty & upd_mapsL .~ Map.singleton x (go xs)
     go _      = error "Network.Riak.CRDT.Map.updateMapWith: empty list"
 
 -- | Remove 'Counter' operation.
-removeCounter :: NonEmpty ByteString -> Op Map
+removeCounter :: NonEmpty ByteString -> Op Map 'True
 removeCounter = removeFromMap rem_countersL
 
 -- | Remove 'Flag' operation.
-removeFlag :: NonEmpty ByteString -> Op Map
+removeFlag :: NonEmpty ByteString -> Op Map 'True
 removeFlag = removeFromMap rem_flagsL
 
 -- | Remove 'Map' operation.
-removeMap :: NonEmpty ByteString -> Op Map
+removeMap :: NonEmpty ByteString -> Op Map 'True
 removeMap = removeFromMap rem_mapsL
 
 -- | Remove 'Register' operation.
-removeRegister :: NonEmpty ByteString -> Op Map
+removeRegister :: NonEmpty ByteString -> Op Map 'True
 removeRegister = removeFromMap rem_registersL
 
 -- | Remove 'Set' operation.
-removeSet :: NonEmpty ByteString -> Op Map
+removeSet :: NonEmpty ByteString -> Op Map 'True
 removeSet = removeFromMap rem_setsL
 
 removeFromMap
-  :: Lens' (Op Map) (Set.Set ByteString) -> NonEmpty ByteString -> Op Map
-removeFromMap l = go . NonEmpty.toList
+  :: Lens' (UOp Map) (Set.Set ByteString) -> NonEmpty ByteString
+  -> Op Map 'True
+removeFromMap l = Op . go . NonEmpty.toList
   where
-    go :: [ByteString] -> Op Map
+    go :: [ByteString] -> UOp Map
     go [x]    = mempty & l .~ Set.singleton x
     go (x:xs) = mempty & upd_mapsL .~ Map.singleton x (go xs)
     go _      = error "Network.Riak.CRDT.Map.removeFromMap: empty list"

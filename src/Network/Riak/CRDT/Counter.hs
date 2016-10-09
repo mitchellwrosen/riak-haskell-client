@@ -1,9 +1,11 @@
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
 
 -- |
 -- Module:      Network.Riak.CRDT.Internal
@@ -26,7 +28,6 @@ import           Control.Applicative
 import           Control.DeepSeq (NFData)
 import           Data.Default.Class
 import           Data.Semigroup
-import qualified Network.Riak.Connection as Conn
 import           Network.Riak.CRDT.Internal
 import           Network.Riak.Protocol.CounterOp (CounterOp(CounterOp))
 import           Network.Riak.Protocol.DtOp (DtOp)
@@ -34,12 +35,11 @@ import qualified Network.Riak.Protocol.DtOp as DtOp
 import           Network.Riak.Protocol.DtFetchRequest (DtFetchRequest)
 import qualified Network.Riak.Protocol.DtFetchResponse.DataType as DtFetchResponse
 import qualified Network.Riak.Protocol.DtValue as DtValue
-import           Network.Riak.Types
+import           Network.Riak.Types hiding (bucket, key)
 import qualified Text.ProtocolBuffers as Proto
 
 import Data.Int     (Int64)
 import GHC.Generics (Generic)
-
 
 newtype Counter = Counter { val :: Count }
   deriving (Eq, Ord, Num, Show, Generic)
@@ -59,29 +59,28 @@ instance Monoid Counter where
   mappend = (<>)
 
 instance CRDT Counter where
-  data Op Counter
+  data UOp Counter
     = CounterInc !Count
     deriving (Eq, Show)
 
-  modify :: Op Counter -> Counter -> Counter
-  modify (CounterInc i) (Counter j) = Counter (i + j)
+  type UpdateOp Counter = CounterOp
 
-instance Semigroup (Op Counter) where
-  CounterInc i <> CounterInc j = CounterInc (i + j)
+  modifyU :: UOp Counter -> Counter -> Counter
+  modifyU (CounterInc i) (Counter j) = Counter (i + j)
 
-instance CRDTOp (Op Counter) where
-  type UpdateOp (Op Counter) = CounterOp
-
-  updateOp :: Op Counter -> UpdateOp (Op Counter)
+  updateOp :: UOp Counter -> UpdateOp Counter
   updateOp (CounterInc i) = CounterOp (Just i)
 
-  unionOp :: Op Counter -> DtOp
+  unionOp :: UOp Counter -> DtOp
   unionOp op = Proto.defaultValue { DtOp.counter_op = Just (updateOp op) }
+
+instance Semigroup (UOp Counter) where
+  CounterInc i <> CounterInc j = CounterInc (i + j)
 
 
 -- | Increment operation.
-incr :: Count -> Op Counter
-incr = CounterInc
+incr :: Count -> Op Counter 'False
+incr i = Op (CounterInc i)
 
 
 -- | Fetch a 'Counter'. This uses the default 'DtFetchRequest.DtFetchRequest' as
