@@ -10,6 +10,12 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
 
+-- |
+-- Module:     Network.Riak.CRDT.Map
+-- Copyright:  (c) 2016 Sentenai
+-- Maintainer: Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
+-- Stability:  experimental
+
 module Network.Riak.CRDT.Map
   ( -- * Map type
     Map
@@ -107,8 +113,8 @@ instance CRDT Map where
 
   type UpdateOp Map = MapOp
 
-  modifyU :: UOp Map -> Map -> Map
-  modifyU MapMod{..} Map{..} = Map
+  _modifyU :: UOp Map -> Map -> Map
+  _modifyU MapMod{..} Map{..} = Map
     { counters  = counters'
     , flags     = flags'
     , maps      = maps'
@@ -143,20 +149,20 @@ instance CRDT Map where
           -- 'Map.mergeWithKey' (ignores ByteString key, and always returns
           -- Just, to keep the element in the map).
           apply :: k -> UOp a -> a -> Maybe a
-          apply _ op x = Just (modifyU op x)
+          apply _ op x = Just (_modifyU op x)
 
           -- | Apply an operation to the default element of a CRDT. Suitable as
           -- the second argument of 'Map.mergeWithKey' (operations on
           -- non-existent elements cause them to be created).
           applyDef :: UOp a -> a
-          applyDef op = modifyU op def
+          applyDef op = _modifyU op def
 
       -- | Remove all of the given keys from a map.
       (\\) :: Ord k => Map.Map k v -> Set.Set k -> Map.Map k v
       m \\ ks = Map.filterWithKey (\k _ -> k `Set.notMember` ks) m
 
-  updateOp :: UOp Map -> UpdateOp Map
-  updateOp MapMod{..} = MapOp removes updates
+  _updateOp :: UOp Map -> UpdateOp Map
+  _updateOp MapMod{..} = MapOp removes updates
     where
       removes :: Seq MapField
       removes =
@@ -184,7 +190,7 @@ instance CRDT Map where
           counterUpdate :: ByteString -> UOp Counter -> MapUpdate
           counterUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.COUNTER
-            , MapUpdate.counter_op = Just (updateOp op)
+            , MapUpdate.counter_op = Just (_updateOp op)
             }
 
           flagUpdate :: ByteString -> Flag -> MapUpdate
@@ -197,7 +203,7 @@ instance CRDT Map where
           mapUpdate :: ByteString -> UOp Map -> MapUpdate
           mapUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.MAP
-            , MapUpdate.map_op = Just (updateOp op)
+            , MapUpdate.map_op = Just (_updateOp op)
             }
 
           registerUpdate :: ByteString -> Register -> MapUpdate
@@ -209,11 +215,11 @@ instance CRDT Map where
           setUpdate :: ByteString -> UOp Set -> MapUpdate
           setUpdate name op = Proto.defaultValue
             { MapUpdate.field = MapField name MapFieldType.SET
-            , MapUpdate.set_op = Just (updateOp op)
+            , MapUpdate.set_op = Just (_updateOp op)
             }
 
-  unionOp :: UOp Map -> DtOp.DtOp
-  unionOp = undefined
+  _unionOp :: UOp Map -> DtOp.DtOp
+  _unionOp = undefined
 
 instance Semigroup (UOp Map) where
   MapMod a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 <>
@@ -285,23 +291,63 @@ newtype Register
 instance NFData Register
 
 
--- | Update 'Counter' operation.
+-- | Update 'Counter' operation. Any intermediate 'Map's (and the 'Counter'
+-- itself) will be created automatically, if missing.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModify' conn "foo" "bar" "baz" op ('updateCounter' ["qux", "fred"] ('Network.Riak.CRDT.Counter.incr' 1))
+-- @
 updateCounter :: NonEmpty ByteString -> Op Counter c -> Op Map c
 updateCounter names (Op op) = Op (updateMapWith upd_countersL names op)
 
--- | Enable 'Flag' operation.
-enableFlag :: NonEmpty ByteString -> Op Map 'True
+-- | Enable 'Flag' operation. Any intermediate 'Map's (and the 'Flag' itself)
+-- will be created automatically, if missing.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModify' conn "foo" "bar" "baz" ('enableFlag' ["qux", "fred"])
+-- @
+enableFlag :: NonEmpty ByteString -> Op Map 'False
 enableFlag names = Op (updateMapWith upd_flagsL names (Flag True))
 
--- | Disable 'Flag' operation.
+-- | Disable 'Flag' operation. Any intermediate 'Map's (and the 'Flag' itself)
+-- will be created automatically, if missing.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('disableFlag' ["qux", "fred"])
+-- @
 disableFlag :: NonEmpty ByteString -> Op Map 'True
 disableFlag names = Op (updateMapWith upd_flagsL names (Flag False))
 
--- | Set 'Register' operation.
+-- | Set 'Register' operation. Any intermediate 'Map's (and the 'Register'
+-- itself) will be created automatically, if missing.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModify' conn "foo" "bar" "baz" ('setRegister' ["qux", "fred"] "thud")
+-- @
 setRegister :: NonEmpty ByteString -> Register -> Op Map 'False
 setRegister names reg = Op (updateMapWith upd_registersL names reg)
 
--- | Update 'Set' operation.
+-- | Update 'Set' operation. Any intermediate 'Map's (and the 'Set' itself) will
+-- be created automatically, if missing.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModify' conn "foo" "bar" "baz" ('updateSet' ["qux", "fred"] ('Network.Riak.CRDT.Set.add' "thud"))
+-- @
 updateSet :: NonEmpty ByteString -> Op Set c -> Op Map c
 updateSet names (Op op) = Op (updateMapWith upd_setsL names op)
 
@@ -319,22 +365,57 @@ updateMapWith l xs0 y = go (NonEmpty.toList xs0)
     go _      = error "Network.Riak.CRDT.Map.updateMapWith: empty list"
 
 -- | Remove 'Counter' operation.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('removeCounter' ["qux", "fred"])
+-- @
 removeCounter :: NonEmpty ByteString -> Op Map 'True
 removeCounter = removeFromMap rem_countersL
 
 -- | Remove 'Flag' operation.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('removeFlag' ["qux", "fred"])
+-- @
 removeFlag :: NonEmpty ByteString -> Op Map 'True
 removeFlag = removeFromMap rem_flagsL
 
 -- | Remove 'Map' operation.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('removeMap' ["qux", "fred"])
+-- @
 removeMap :: NonEmpty ByteString -> Op Map 'True
 removeMap = removeFromMap rem_mapsL
 
 -- | Remove 'Register' operation.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('removeRegister' ["qux", "fred"])
+-- @
 removeRegister :: NonEmpty ByteString -> Op Map 'True
 removeRegister = removeFromMap rem_registersL
 
 -- | Remove 'Set' operation.
+--
+-- Example:
+--
+-- @
+-- -- Using -XOverloadedLists
+-- 'sendModifyCtx' conn "foo" "bar" "baz" ctx ('removeSet' ["qux", "fred"])
+-- @
 removeSet :: NonEmpty ByteString -> Op Map 'True
 removeSet = removeFromMap rem_setsL
 

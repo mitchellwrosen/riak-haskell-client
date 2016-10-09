@@ -7,10 +7,10 @@
 {-# LANGUAGE TypeOperators              #-}
 
 -- |
--- Module:      Network.Riak.CRDT.Internal
--- Copyright:   (c) 2016 Sentenai
--- Author:      Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
--- Stability:   experimental
+-- Module:     Network.Riak.CRDT.Set
+-- Copyright:  (c) 2016 Sentenai
+-- Maintainer: Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
+-- Stability:  experimental
 
 module Network.Riak.CRDT.Set
   ( -- * Set type
@@ -60,27 +60,35 @@ instance CRDT Set where
 
   type UpdateOp Set = SetOp
 
-  modifyU :: UOp Set -> Set -> Set
-  modifyU (SetMod xs ys) (Set zs) = Set ((zs <> xs) Set.\\ ys)
+  _modifyU :: UOp Set -> Set -> Set
+  _modifyU (SetMod xs ys) (Set zs) = Set ((zs <> xs) Set.\\ ys)
 
-  updateOp :: UOp Set -> UpdateOp Set
-  updateOp (SetMod xs ys) = SetOp (toSeq xs) (toSeq ys)
+  _updateOp :: UOp Set -> UpdateOp Set
+  _updateOp (SetMod xs ys) = SetOp (toSeq xs) (toSeq ys)
     where
       toSeq :: Set.Set a -> Seq a
       toSeq = Seq.fromList . Set.toList
 
-  unionOp :: UOp Set -> DtOp
-  unionOp op = Proto.defaultValue { DtOp.set_op = Just (updateOp op) }
+  _unionOp :: UOp Set -> DtOp
+  _unionOp op = Proto.defaultValue { DtOp.set_op = Just (_updateOp op) }
 
 instance Semigroup (UOp Set) where
   SetMod as bs <> SetMod cs ds = SetMod (as <> cs) (bs <> ds)
 
 
 -- | Add operation.
+--
+-- @
+-- 'sendModify' "foo" "bar" "baz" ('add' "qux")
+-- @
 add :: ByteString -> Op Set 'False
 add x = Op (SetMod (Set.singleton x) mempty)
 
 -- | Remove operation.
+--
+-- @
+-- 'sendModifyCtx' "foo" "bar" "baz" ctx ('add' "qux")
+-- @
 remove :: ByteString -> Op Set 'True
 remove x = Op (SetMod mempty (Set.singleton x))
 

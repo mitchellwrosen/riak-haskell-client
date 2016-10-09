@@ -8,10 +8,10 @@
 {-# LANGUAGE TypeOperators              #-}
 
 -- |
--- Module:      Network.Riak.CRDT.Internal
--- Copyright:   (c) 2016 Sentenai
--- Author:      Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
--- Stability:   experimental
+-- Module:     Network.Riak.CRDT.Counter
+-- Copyright:  (c) 2016 Sentenai
+-- Maintainer: Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
+-- Stability:  experimental
 
 module Network.Riak.CRDT.Counter
   ( -- * Counter type
@@ -65,20 +65,26 @@ instance CRDT Counter where
 
   type UpdateOp Counter = CounterOp
 
-  modifyU :: UOp Counter -> Counter -> Counter
-  modifyU (CounterInc i) (Counter j) = Counter (i + j)
+  _modifyU :: UOp Counter -> Counter -> Counter
+  _modifyU (CounterInc i) (Counter j) = Counter (i + j)
 
-  updateOp :: UOp Counter -> UpdateOp Counter
-  updateOp (CounterInc i) = CounterOp (Just i)
+  _updateOp :: UOp Counter -> UpdateOp Counter
+  _updateOp (CounterInc i) = CounterOp (Just i)
 
-  unionOp :: UOp Counter -> DtOp
-  unionOp op = Proto.defaultValue { DtOp.counter_op = Just (updateOp op) }
+  _unionOp :: UOp Counter -> DtOp
+  _unionOp op = Proto.defaultValue { DtOp.counter_op = Just (_updateOp op) }
 
 instance Semigroup (UOp Counter) where
   CounterInc i <> CounterInc j = CounterInc (i + j)
 
 
 -- | Increment operation.
+--
+-- Example:
+--
+-- @
+-- 'sendModify' conn "foo" "bar" "baz" ('incr' 1)
+-- @
 incr :: Count -> Op Counter 'False
 incr i = Op (CounterInc i)
 

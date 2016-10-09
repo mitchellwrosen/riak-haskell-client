@@ -10,10 +10,10 @@
 {-# LANGUAGE TypeOperators       #-}
 
 -- |
--- Module:      Network.Riak.CRDT.Internal
--- Copyright:   (c) 2016 Sentenai
--- Author:      Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
--- Stability:   experimental
+-- Module:     Network.Riak.CRDT.Internal
+-- Copyright:  (c) 2016 Sentenai
+-- Maintainer: Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
+-- Stability:  experimental
 
 module Network.Riak.CRDT.Internal where
 
@@ -54,7 +54,7 @@ import qualified Text.ProtocolBuffers as Proto
 type Context = ByteString
 
 
--- TODO: How to get rid of UOp in docs...
+-- | An opaque CRDT typeclass.
 class CRDT a where
   -- | "Untyped" op - that is, the associated data family that does not carry
   -- a Bool type index indicating whether its associated request to Riak
@@ -65,27 +65,31 @@ class CRDT a where
   -- operation.
   type UpdateOp a
 
-  modifyU :: UOp a -> a -> a
+  _modifyU :: UOp a -> a -> a
 
   -- | This is just '<>', but allows us to drop a 'Semigroup' constriant on
   -- 'UOp' that shows up in the haddocks.
-  default combineOp :: Semigroup (UOp a) => UOp a -> UOp a -> UOp a
-  combineOp :: UOp a -> UOp a -> UOp a
-  combineOp = (<>)
+  default _combineOp :: Semigroup (UOp a) => UOp a -> UOp a -> UOp a
+  _combineOp :: UOp a -> UOp a -> UOp a
+  _combineOp = (<>)
 
   -- | Marshal a Haskell op to its protobuf form.
-  updateOp :: UOp a -> UpdateOp a
+  _updateOp :: UOp a -> UpdateOp a
 
   -- | Lift a Haskell op all the way to a protobuf DtOp (the union of all
   -- possible operations). This necessarily is implemented using 'updateOp'.
-  unionOp :: UOp a -> DtOp
+  _unionOp :: UOp a -> DtOp
 
--- | Modify a Haskell data type with an 'Op'.
-modify :: CRDT a => Op a c -> a -> a
-modify (Op op) = modifyU op
-
-
--- | A CRDT operation, tagged with a type-level boolean indicating if a request
+-- |
+-- @
+-- 'Op' a c
+--    | |
+--    | \''True' or \''False'
+--    |
+--    'Network.Riak.CRDT.Counter.Counter', 'Network.Riak.CRDT.Map.Map', or 'Network.Riak.CRDT.Set.Set'
+-- @
+--
+-- A CRDT operation, tagged with a type-level boolean indicating if a request
 -- sent with this 'Op' requires a 'Context'.
 --
 -- This is enforced by 'sendModify' and 'sendModifyCtx'.
@@ -96,11 +100,11 @@ newtype Op a (c :: Bool) = Op (UOp a)
 --
 -- @
 -- type family (:||) a b where
---   'False' :|| x = x
---   'True   :|| x = 'True
+--   'False :|| x = x
+--   'True  :|| x = 'True
 -- @
 (><) :: CRDT a => Op a c -> Op a c' -> Op a (c :|| c')
-Op x >< Op y = Op (combineOp x y)
+Op x >< Op y = Op (_combineOp x y)
 infixr 6 ><
 
 type family (:||) a b where
@@ -109,13 +113,10 @@ type family (:||) a b where
 
 
 data CRDTException
-  = CRDTTypeMismatch
-      BucketType
-      Bucket
-      Key
-      DtFetchResponse.DataType -- Expected type
-      DtFetchResponse.DataType -- Actual type
-  -- ^ A fetch was performed for one data type, but another was returned.
+  = CRDTTypeMismatch BucketType Bucket Key DtFetchResponse.DataType
+      DtFetchResponse.DataType
+  -- ^ A fetch was performed for the first 'DataType', but the second one was
+  -- returned instead.
   deriving (Show, Typeable)
 
 instance Exception CRDTException where
@@ -137,6 +138,17 @@ instance Exception CRDTException where
 #endif
 
 
+-- | Modify a 'CRDT' locally with its associated 'Op'.
+--
+-- @
+-- >>> let c = 'Network.Riak.Counter.Counter' 0
+-- >>> 'modify' ('Network.Riak.Counter.incr' 1 '><' 'Network.Riak.Counter.incr' 2) c
+-- Counter 3
+-- @
+modify :: CRDT a => Op a c -> a -> a
+modify (Op op) = _modifyU op
+
+
 -- | Send an update request to Riak. This uses the default
 -- 'DtUpdateRequest.DtUpdateRequest' as returned by 'updateRequest':
 --
@@ -148,13 +160,13 @@ instance Exception CRDTException where
 -- @op@ fields are the only ones you wish to set.
 --
 -- If you want to further modify the update request, simply construct it
--- manually, then send the request using 'Conn.exchange_'. For example,
+-- manually, then send the request using 'Conn.exchange_' as above. For example,
 --
 -- @
 -- 'Conn.exchange_' conn req
 --   where
 --     req :: 'DtUpdateRequest.DtUpdateRequest'
---     req = ('updateRequest' typ bucket key op) { 'DtUpdateRequest.timeout' = 'Just' 1000 })
+--     req = ('updateRequest' typ bucket key op) { 'DtUpdateRequest.timeout' = 'Just' 1000 }
 -- @
 --
 -- Note that this circumvents the type-safety built into 'Op', namely that
@@ -181,7 +193,7 @@ sendModifyCtx conn typ bucket key ctx op = Conn.exchange_ conn req
 -- | Construct a  'DtUpdateRequest.DtUpdateRequest' with the @type@, @bucket@,
 -- @key@, and @op@ fields set.
 --
--- Use this when 'sendModify'/'sendModifyCtx' are insufficient.
+-- Use this when 'sendModify' or 'sendModifyCtx' are insufficient.
 updateRequest
   :: CRDT a
   => BucketType -> Bucket -> Key -> Op a c -> DtUpdateRequest
@@ -189,7 +201,7 @@ updateRequest typ bucket key (Op op) = Proto.defaultValue
   { DtUpdateRequest.type'  = typ
   , DtUpdateRequest.bucket = bucket
   , DtUpdateRequest.key    = Just key
-  , DtUpdateRequest.op     = unionOp op
+  , DtUpdateRequest.op     = _unionOp op
   }
 
 
@@ -197,30 +209,34 @@ updateRequest typ bucket key (Op op) = Proto.defaultValue
 -- default 'DtFetchRequest.DtFetchRequest' as returned by 'fetchRequest':
 --
 -- @
--- 'fetchRaw' conn typ bucket key = 'Conn.exchange conn ('fetchRequest' typ bucket key)
+-- 'fetchRaw' conn typ bucket key = 'Conn.exchange' conn ('fetchRequest' typ bucket key)
 -- @
 --
 -- This is provided for the common case that the @type@, @bucket@, and @key@
 -- fields are the only ones you wish to set.
 --
 -- If you want to further modify the update request, simply construct it
--- manually, then send the request using 'Conn.exchange'. For example,
+-- manually, then send the request using 'Conn.exchange' as above. For example,
 --
 -- @
 -- 'Conn.exchange' conn req
 --   where
 --     req :: 'DtFetchRequest.DtFetchRequest'
---     req = ('fetchRequest' typ bucket key) { 'DtFetchRequest.timeout' = 'Just' 1000 })
+--     req = ('fetchRequest' typ bucket key) { 'DtFetchRequest.timeout' = 'Just' 1000 }
 -- @
 --
--- The higher-level @fetch@ functions that pick apart the response should
--- usually suffice; see @Counter.'Network.Riak.CRDT.Counter.fetch'@,
+-- The higher-level @fetch@ functions that parse the response should usually
+-- suffice; see @Counter.'Network.Riak.CRDT.Counter.fetch'@,
 -- @Map.'Network.Riak.CRDT.Map.fetch'@, and @Set.'Network.Riak.CRDT.Set.fetch'@.
-fetchRaw
-  :: Connection -> BucketType -> Bucket -> Key
-  -> IO DtFetchResponse
+fetchRaw :: Connection -> BucketType -> Bucket -> Key -> IO DtFetchResponse
 fetchRaw conn typ bucket key = Conn.exchange conn (fetchRequest typ bucket key)
 
+-- | Construct a 'DtFetchRequest' with the @type@, @bucket@, and @key@ fields
+-- set.
+--
+-- Use this for @Counter.'Network.Riak.CRDT.Counter.fetchWith'@,
+-- @Map.'Network.Riak.CRDT.Map.fetchWith'@, and
+-- @Set.'Network.Riak.CRDT.Set.fetchWith'@.
 fetchRequest :: BucketType -> Bucket -> Key -> DtFetchRequest
 fetchRequest typ bucket key = Proto.defaultValue
   { DtFetchRequest.type'  = typ

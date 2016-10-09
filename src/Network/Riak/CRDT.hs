@@ -1,18 +1,17 @@
 -- |
--- Module:      Network.Riak.CRDT
--- Copyright:   (c) 2016 Sentenai
--- Author:      Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
--- Stability:   experimental
+-- Module:     Network.Riak.CRDT
+-- Copyright:  (c) 2016 Sentenai
+-- Maintainer: Antonio Nikishaev <me@lelf.lu>, Mitchell Rosen <mitchellwrosen@gmail.com>
+-- Stability:  experimental
 --
--- CRDTs
+-- CRDT operations
 
 module Network.Riak.CRDT
   ( -- * CRDT types
     CRDT
-  , CRDTException(..)
-  , Context
   , Op
   , (><)
+  , Context
     -- * Haskell updates
   , modify
     -- * Riak updates
@@ -22,6 +21,8 @@ module Network.Riak.CRDT
     -- * Fetching data
   , fetchRaw
   , fetchRequest
+    -- * CRDT Exceptions
+  , CRDTException(..)
   ) where
 
 import Network.Riak.CRDT.Internal
