@@ -81,27 +81,6 @@ import           Network.Riak.Types
 import qualified Text.ProtocolBuffers as Proto
 
 
-data Map = Map
-  { counters  :: Map.Map ByteString Counter
-  , flags     :: Map.Map ByteString Flag
-  , maps      :: Map.Map ByteString Map
-  , registers :: Map.Map ByteString Register
-  , sets      :: Map.Map ByteString Set
-  } deriving (Eq, Show, Generic)
-
-instance NFData Map
-
-instance Default Map where
-  def = mempty
-
-instance Semigroup Map where
-  Map a0 a1 a2 a3 a4 <> Map b0 b1 b2 b3 b4 =
-    Map (a0 <> b0) (a1 <> b1) (a2 <> b2) (a3 <> b3) (a4 <> b4)
-
-instance Monoid Map where
-  mempty = Map mempty mempty mempty mempty mempty
-  mappend = (<>)
-
 instance CRDT Map where
   data UOp Map
     = MapMod
@@ -284,19 +263,6 @@ rem_setsL :: Lens' (UOp Map) (Set.Set ByteString)
 rem_setsL = lens rem_sets (\m x -> m { rem_sets = x })
 
 
-newtype Flag
-  = Flag { flagVal :: Bool }
-  deriving (Eq, Show, Generic)
-
-instance NFData Flag
-
-newtype Register
-  = Register { registerVal :: ByteString }
-  deriving (Eq, Show, Generic)
-
-instance NFData Register
-
-
 -- | Look up a 'Counter' in a 'Map'.
 lookupCounter :: NonEmpty ByteString -> Map -> Maybe Counter
 lookupCounter = lookupInMap counters
@@ -474,11 +440,13 @@ removeFromMap l = Op . go . NonEmpty.toList
 --
 -- Throws 'CRDTTypeMismatch' if the given bucket type, bucket, and key does not
 -- contain a 'Map'.
-fetch :: Connection -> BucketType -> Bucket -> Key -> IO (Maybe (Map, Context))
+fetch
+  :: Connection -> BucketType -> Bucket -> Key
+  -> IO (Maybe (Map, (Context Map)))
 fetch conn typ bucket key =
   fmap go <$> fetchWith conn (fetchRequest typ bucket key)
   where
-    go :: (Map, Maybe Context) -> (Map, Context)
+    go :: (Map, Maybe (Context Map)) -> (Map, (Context Map))
     go (m, Just c) = (m, c)
     -- @include_context@ was not included in request, so it should default to
     -- true. Therefore, we should always get a context back.
@@ -488,11 +456,13 @@ fetch conn typ bucket key =
 --
 -- Throws 'CRDTTypeMismatch' if the given bucket type, bucket, and key does
 -- not contain a 'Map'.
-fetchWith :: Connection -> DtFetchRequest -> IO (Maybe (Map, Maybe Context))
+fetchWith
+  :: Connection -> DtFetchRequest
+  -> IO (Maybe (Map, Maybe (Context Map)))
 fetchWith conn req =
   fmap go <$> fetchInternal DtFetchResponse.MAP DtValue.map_value conn req
   where
-    go :: (Seq MapEntry, Maybe Context) -> (Map, Maybe Context)
+    go :: (Seq MapEntry, Maybe (Context Map)) -> (Map, Maybe (Context Map))
     go = over _1 mapEntriesToMap
 
     mapEntriesToMap :: Seq MapEntry -> Map

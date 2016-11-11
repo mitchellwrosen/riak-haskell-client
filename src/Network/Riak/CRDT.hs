@@ -15,9 +15,9 @@ module Network.Riak.CRDT
     -- * Haskell updates
   , modify
     -- * Riak updates
-  , sendModify
-  , sendModifyCtx
-  , updateRequest
+  -- , sendModify
+  -- , sendModifyCtx
+  -- , updateRequest
     -- * Fetching data
   , fetchRaw
   , fetchRequest

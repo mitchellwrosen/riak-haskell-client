@@ -45,14 +45,6 @@ import           Network.Riak.Types hiding (bucket, key)
 import qualified Text.ProtocolBuffers as Proto
 
 
-newtype Set = Set (Set.Set ByteString)
-  deriving (Eq, Ord, Show, Generic, Monoid, Semigroup)
-
-instance NFData Set
-
-instance Default Set where
-  def = mempty
-
 instance CRDT Set where
   data UOp Set
     = SetMod (Set.Set ByteString) (Set.Set ByteString)
@@ -98,11 +90,13 @@ remove x = Op (SetMod mempty (Set.singleton x))
 --
 -- Throws 'CRDTTypeMismatch' if the given bucket type, bucket, and key does not
 -- contain a 'Set'.
-fetch :: Connection -> BucketType -> Bucket -> Key -> IO (Maybe (Set, Context))
+fetch
+  :: Connection -> BucketType -> Bucket -> Key
+  -> IO (Maybe (Set, Context Set))
 fetch conn typ bucket key =
   fmap go <$> fetchWith conn (fetchRequest typ bucket key)
   where
-    go :: (Set, Maybe Context) -> (Set, Context)
+    go :: (Set, Maybe (Context Set)) -> (Set, (Context Set))
     go (s, Just c) = (s, c)
     -- @include_context@ was not included in request, so it should default to
     -- true. Therefore, we should always get a context back.
@@ -112,9 +106,10 @@ fetch conn typ bucket key =
 --
 -- Throws 'CRDTTypeMismatch' if the given bucket type, bucket, and key does
 -- not contain a 'Set'.
-fetchWith :: Connection -> DtFetchRequest -> IO (Maybe (Set, Maybe Context))
+fetchWith
+  :: Connection -> DtFetchRequest -> IO (Maybe (Set, Maybe (Context Set)))
 fetchWith conn req =
   fmap go <$> fetchInternal DtFetchResponse.SET DtValue.set_value conn req
   where
-    go :: (Seq ByteString, Maybe Context) -> (Set, Maybe Context)
+    go :: (Seq ByteString, Maybe (Context Set)) -> (Set, Maybe (Context Set))
     go = over _1 (Set . seqToSet)
